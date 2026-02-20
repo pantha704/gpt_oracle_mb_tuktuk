@@ -1,17 +1,14 @@
 #![allow(unexpected_cfgs)]
-#![allow(deprecated)]
 
 use anchor_lang::prelude::*;
-use ephemeral_rollups_sdk::anchor::ephemeral;
 
 mod instructions;
 mod state;
 
 use instructions::*;
 
-declare_id!("2RuRYnQYofQLhnCJ3Ywo9atAD7xiiCK3MkaHR8ryYoSC");
+declare_id!("46Ep45sLrFK7cFGSgTMDyXWtywQ2QSj9zAtPHscZTg8z");
 
-#[ephemeral]
 #[program]
 pub mod gpt_oracle_mb_tuktuk {
     use super::*;
@@ -28,32 +25,11 @@ pub mod gpt_oracle_mb_tuktuk {
         instructions::receive_answer(ctx, response)
     }
 
-    pub fn delegate(ctx: Context<DelegateUser>) -> Result<()> {
-        instructions::delegate_user(ctx)
+    pub fn close_user(ctx: Context<CloseUser>) -> Result<()> {
+        instructions::close_user(ctx)
     }
 
-    pub fn undelegate(ctx: Context<UndelegateUser>) -> Result<()> {
-        instructions::undelegate_user(ctx)
+    pub fn schedule(ctx: Context<Schedule>, task_id: u16) -> Result<()> {
+        ctx.accounts.schedule(task_id, &ctx.bumps)
     }
-
-    pub fn schedule<'info>(
-        ctx: Context<'_, '_, 'info, 'info, Schedule<'info>>,
-        task_id: u16,
-        compiled_tx: CompiledTransactionArg,
-    ) -> Result<()> {
-        ctx.accounts
-            .schedule(task_id, compiled_tx, ctx.bumps, ctx.remaining_accounts)
-    }
-
-    // Required for Ephemeral Rollups state updates
-    pub fn update_commit(_ctx: Context<UpdateCommit>) -> Result<()> {
-        Ok(())
-    }
-}
-
-// Helper context for update_commit (standard pattern for ER)
-#[derive(Accounts)]
-pub struct UpdateCommit<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
 }

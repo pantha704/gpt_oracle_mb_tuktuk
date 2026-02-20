@@ -1,78 +1,76 @@
 use anchor_lang::prelude::*;
-use solana_gpt_oracle::cpi::accounts::InteractWithLlm;
-use solana_gpt_oracle::program::SolanaGptOracle;
-use solana_gpt_oracle::{self, cpi::interact_with_llm};
+use anchor_lang::Discriminator;
+use solana_gpt_oracle::{ContextAccount, Identity};
+
+use crate::state::UserAccount;
+
+const AGENT_PROMPT: &str = "Analyze the current btc trend in 1 sentence.";
 
 #[derive(Accounts)]
 pub struct AskOracle<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    /// CHECK: The Oracle creates/manages this account
+
+    /// CHECK: Created/managed by the oracle program
     #[account(mut)]
-    pub interaction: UncheckedAccount<'info>,
-    /// CHECK: The pre-initialized context
-    pub llm_context: UncheckedAccount<'info>,
-    pub oracle_program: Program<'info, SolanaGptOracle>,
+    pub interaction: AccountInfo<'info>,
+
+    /// CHECK: The pre-initialized LLM context (stored in user_account)
+    #[account(address = user_account.context)]
+    pub llm_context: Account<'info, ContextAccount>,
+
+    #[account(
+        seeds = [b"user", payer.key().as_ref()],
+        bump = user_account.bump,
+    )]
+    pub user_account: Account<'info, UserAccount>,
+
+    /// CHECK: Verified by address constraint
+    #[account(address = solana_gpt_oracle::ID)]
+    pub oracle_program: AccountInfo<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
 pub fn ask_oracle(ctx: Context<AskOracle>) -> Result<()> {
-    let prompt = "Analyze the current Solana trend in 1 sentence.";
+    let cpi_program = ctx.accounts.oracle_program.to_account_info();
+    let cpi_accounts = solana_gpt_oracle::cpi::accounts::InteractWithLlm {
+        payer: ctx.accounts.payer.to_account_info(),
+        interaction: ctx.accounts.interaction.to_account_info(),
+        context_account: ctx.accounts.llm_context.to_account_info(),
+        system_program: ctx.accounts.system_program.to_account_info(),
+    };
+    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
 
-    let cpi_ctx = CpiContext::new(
-        ctx.accounts.oracle_program.to_account_info(),
-        InteractWithLlm {
-            payer: ctx.accounts.payer.to_account_info(),
-            interaction: ctx.accounts.interaction.to_account_info(),
-            context_account: ctx.accounts.llm_context.to_account_info(),
-            system_program: ctx.accounts.system_program.to_account_info(),
-        },
-    );
+    // Use the discriminator of our callback instruction so the oracle knows where to call back
+    let disc: [u8; 8] = crate::instruction::ReceiveAnswer::DISCRIMINATOR
+        .try_into()
+        .expect("Discriminator must be 8 bytes");
 
-    // FIX: Manually calculate the discriminator for "receive_answer"
-    // Anchor format: "global:function_name" (snake_case)
-    let cb_discriminator = get_sighash("global", "receive_answer");
-
-    interact_with_llm(
+    solana_gpt_oracle::cpi::interact_with_llm(
         cpi_ctx,
-        prompt.to_string(),
+        AGENT_PROMPT.to_string(),
         crate::ID,
-        cb_discriminator, // Pass the calculated bytes
+        disc,
         None,
     )?;
 
-    msg!("Request sent to Oracle!");
+    msg!("Oracle request sent via CPI!");
     Ok(())
 }
 
+// Callback handler — called by the oracle's off-chain agent after GPT responds
 pub fn receive_answer(ctx: Context<ReceiveAnswerContext>, response: String) -> Result<()> {
-    let user_account = &mut ctx.accounts.user_account;
-    user_account.last_response = response.clone();
-    msg!("ORACLE RESPONSE STORED: {}", response);
-    emit!(AgentEvent { response });
+    // Verify the oracle identity is a signer (proves callback came from oracle)
+    if !ctx.accounts.identity.to_account_info().is_signer {
+        return Err(ProgramError::InvalidAccountData.into());
+    }
+
+    msg!("Response: {:?}", response);
     Ok(())
 }
 
 #[derive(Accounts)]
 pub struct ReceiveAnswerContext<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    #[account(mut)]
-    pub user_account: Account<'info, crate::state::UserAccount>,
-    /// CHECK: Verified by the Oracle program logic usually
-    pub identity: Signer<'info>,
-}
-
-#[event]
-pub struct AgentEvent {
-    pub response: String,
-}
-
-// --- HELPER FUNCTION ---
-// Calculates the 8-byte instruction discriminator manually
-pub fn get_sighash(namespace: &str, name: &str) -> [u8; 8] {
-    let preimage = format!("{}:{}", namespace, name);
-    let mut sighash = [0u8; 8];
-    sighash.copy_from_slice(&solana_program::hash::hash(preimage.as_bytes()).to_bytes()[..8]);
-    sighash
+    pub identity: Account<'info, Identity>,
 }

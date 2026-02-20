@@ -22,9 +22,10 @@ custom-panic = []
 
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
-solana-gpt-oracle = { version = "0.1.1", features = ["cpi"] }
-ephemeral-rollups-sdk = { version = "0.8.5", features = ["anchor"] }
-solana-program = "3.0.0"
+solana-gpt-oracle = { git = "https://github.com/magicblock-labs/super-smart-contracts", features = [
+  "cpi",
+] }
+tuktuk-program = { git = "https://github.com/AvhiMaz/tuktuk", branch = "chore/bump-versions", package = "tuktuk-program" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [

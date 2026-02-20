@@ -1,8 +1,7 @@
 use anchor_lang::prelude::*;
 
 #[account]
-#[derive(Default)]
 pub struct UserAccount {
+    pub context: Pubkey, // LLM context created during initialize
     pub bump: u8,
-    pub last_response: String,
 }
